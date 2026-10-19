@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="ar">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#050206">
+<meta name="robots" content="noindex">
+<title>❤</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Aref+Ruqaa:wght@700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+<style>
+  :root { --bg: #050206; }
+  html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #mute { position: fixed; top: max(14px, env(safe-area-inset-top)); left: 14px; width: 38px; height: 38px; border-radius: 50%; border: 1px solid rgba(255, 160, 180, .25);
+    background: rgba(255, 255, 255, .04); color: rgba(255, 200, 210, .8); font: 16px/38px system-ui; text-align: center; opacity: 0; transition: opacity .6s; z-index: 3; }
+  #again { position: fixed; bottom: max(18px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); padding: 9px 18px; border-radius: 99px;
+    border: 1px solid rgba(255, 160, 180, .28); background: rgba(255, 255, 255, .04); color: rgba(255, 210, 218, .85); font: 500 14px/1 system-ui, sans-serif;
+    opacity: 0; pointer-events: none; transition: opacity .8s; z-index: 3; direction: rtl; }
+  #again.on { opacity: 1; pointer-events: auto; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<button id="mute" aria-label="الصوت">♪</button>
+<button id="again">↻ مرة ثانية</button>
+<script>
+// ======================================================================
+//  غيّر هنا بس
+const NAME = 'Dalia';        // ينكتب بخط اليد داخل القلب
+const NAME_AR = 'داليا';     // تحت القلب
+const FROM = '';             // مثلاً 'من محمد' (فارغ = ما يطلع)
+const SONG = 'song.mp3';     // الأغنية: حط الملف بنفس المجلد بهالاسم (إذا ماكو، تشتغل بالنبض بس)
+const SONG_HIT = 12;         // أي ثانية من ملف الأغنية تطيح على لحظة تكوّن القلب (الملف مقطع يبدي من 0:36 بالأغنية، فـ12 = 0:48)
+// ======================================================================
+
+const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+const resize = () => {
+  DPR = Math.min(2, window.devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+  cv.width = Math.round(W * DPR); cv.height = Math.round(H * DPR); ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  layoutHeart();
+};
+const TAU = Math.PI * 2, rand = Math.random;
+const ease = { io: (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2), out: (x) => 1 - Math.pow(1 - x, 3), back: (x) => 1 + 2.4 * Math.pow(x - 1, 3) + 1.4 * Math.pow(x - 1, 2) };
+const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+
+// ---------------------------------------------------------------- sound: made in the browser, nothing to download
+let ac = null, master = null, muted = false;
+function audioInit() {
+  if (ac) return;
+  try { ac = new (window.AudioContext || window.webkitAudioContext)(); master = ac.createGain(); master.gain.value = 0.9; master.connect(ac.destination); } catch (e) { ac = null; }
+}
+// the song: starts with the first touch (phones only allow sound after one), soft, and swells when the heart is whole
+let song = null, songOk = false;
+function songStart() {
+  if (song) return;
+  song = new Audio(SONG); song.preload = 'auto'; song.loop = true; song.volume = 0;
+  song.addEventListener('canplay', () => { songOk = true; }, { once: true });
+  song.addEventListener('error', () => { song = null; songOk = false; });
+  const p = song.play(); if (p && p.catch) p.catch(() => {});
+  // start early enough that SONG_HIT lands as the heart forms (typing ~TOTAL/46 s, the run 1.25 s, the flight 2.4 s)
+  song.addEventListener('loadedmetadata', () => { try { song.currentTime = Math.max(0, SONG_HIT - (TOTAL / 46 + 3.65)); } catch (e) {} }, { once: true });
+}
+function songVol(v, ms = 1800) {                        // a slow fade, in steps
+  if (!song) return; const from = song.volume, t0 = performance.now();
+  const step = () => { if (!song) return; const u = Math.min(1, (performance.now() - t0) / ms); song.volume = muted ? 0 : from + (v - from) * u; if (u < 1) requestAnimationFrame(step); };
+  step();
+}
+function thump(at, f0 = 82, g = 0.9) {
+  if (songOk) g *= 0.45;                                 // under the song, the heart is quieter               // one heartbeat sound: a falling low sine and a soft click
+  if (!ac || muted) return;
+  const o = ac.createOscillator(), v = ac.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(f0, at); o.frequency.exponentialRampToValueAtTime(38, at + 0.16);
+  v.gain.setValueAtTime(0.0001, at); v.gain.exponentialRampToValueAtTime(g, at + 0.008); v.gain.exponentialRampToValueAtTime(0.0001, at + 0.24);
+  o.connect(v); v.connect(master); o.start(at); o.stop(at + 0.26);
+}
+function tick() {                                       // a soft key under a finger
+  if (!ac || muted) return;
+  const n = ac.createBufferSource(), b = ac.createBuffer(1, 900, ac.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < d.length; i++) d[i] = (rand() * 2 - 1) * Math.pow(1 - i / d.length, 6);
+  const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1800 + rand() * 1400; f.Q.value = 1.2;
+  const v = ac.createGain(); v.gain.value = 0.16;
+  n.buffer = b; n.connect(f); f.connect(v); v.connect(master); n.start();
+}
+function chime() {                                      // when the heart is whole: a soft rising chord
+  if (!ac || muted) return;
+  [523.25, 659.25, 783.99, 1046.5, 1318.5].forEach((fr, i) => {
+    const at = ac.currentTime + i * 0.11, o = ac.createOscillator(), v = ac.createGain();
+    o.type = 'sine'; o.frequency.value = fr;
+    v.gain.setValueAtTime(0.0001, at); v.gain.exponentialRampToValueAtTime(0.09, at + 0.02); v.gain.exponentialRampToValueAtTime(0.0001, at + 2.4);
+    o.connect(v); v.connect(master); o.start(at); o.stop(at + 2.5);
+  });
+}
+function whoosh(dur = 1.6) {                            // the code flying apart
+  if (!ac || muted) return;
+  const len = Math.floor(ac.sampleRate * dur), b = ac.createBuffer(1, len, ac.sampleRate), d = b.getChannelData(0);
+  for (let i = 0; i < len; i++) d[i] = rand() * 2 - 1;
+  const n = ac.createBufferSource(); n.buffer = b;
+  const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.8;
+  const at = ac.currentTime; f.frequency.setValueAtTime(300, at); f.frequency.exponentialRampToValueAtTime(2600, at + dur * 0.6); f.frequency.exponentialRampToValueAtTime(700, at + dur);
+  const v = ac.createGain(); v.gain.setValueAtTime(0.0001, at); v.gain.exponentialRampToValueAtTime(0.22, at + dur * 0.4); v.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+  n.connect(f); f.connect(v); v.connect(master); n.start(at);
+}
+document.getElementById('mute').onclick = (e) => {
+  e.stopPropagation(); muted = !muted; e.target.textContent = muted ? '✕' : '♪';
+  if (master) master.gain.value = muted ? 0 : 0.9;
+  if (song) song.volume = muted ? 0 : (phase === 'heart' ? 0.85 : 0.35);
+};
+
+// ---------------------------------------------------------------- the code that gets typed (tokens: k keyword, f function, s string, n number, c comment, p plain)
+const CODE = [
+  [['// ❤  for ', 'c'], [NAME, 's']],
+  [['const ', 'k'], ['name ', 'p'], ['= ', 'p'], [`"${NAME}"`, 's'], [';', 'p']],
+  [],
+  [['function ', 'k'], ['heart', 'f'], ['(t) {', 'p']],
+  [['  const ', 'k'], ['x = ', 'p'], ['16', 'n'], [' * sin(t) ** ', 'p'], ['3', 'n'], [';', 'p']],
+  [['  const ', 'k'], ['y = ', 'p'], ['13', 'n'], ['*cos(t) - ', 'p'], ['5', 'n'], ['*cos(', 'p'], ['2', 'n'], ['*t)', 'p']],
+  [['          - ', 'p'], ['2', 'n'], ['*cos(', 'p'], ['3', 'n'], ['*t) - cos(', 'p'], ['4', 'n'], ['*t);', 'p']],
+  [['  return ', 'k'], ['[x, -y];', 'p']],
+  [['}', 'p']],
+  [],
+  [['for ', 'k'], ['(', 'p'], ['let ', 'k'], ['i = ', 'p'], ['0', 'n'], ['; i < ', 'p'], ['4200', 'n'], ['; i++)', 'p']],
+  [['  dots.', 'p'], ['push', 'f'], ['(', 'p'], ['heart', 'f'], ['(', 'p'], ['random', 'f'], ['() * TAU));', 'p']],
+  [],
+  [['love.', 'p'], ['beat', 'f'], ['(name);', 'p'], ['  // ▶ run', 'c']],
+];
+const TOK = { k: '#C792EA', f: '#FFCB6B', s: '#F78C6C', n: '#C3E88D', c: '#5F6F8A', p: '#BFC7D5' };
+const TOTAL = CODE.reduce((a, l) => a + l.reduce((b, [s]) => b + [...s].length, 0) + 1, 0);
+let ed = null;                                          // editor geometry
+function editorGeo() {
+  const pw = Math.min(W - 28, 560), cols = 40;
+  const fs = Math.max(10, Math.min(16, (pw - 58) / (cols * 0.6)));
+  const lh = fs * 1.62, ph = 44 + CODE.length * lh + 22 + 48;
+  return { x: (W - pw) / 2, y: Math.max(20, (H - ph) / 2), w: pw, h: ph, fs, lh, gx: (W - pw) / 2 + 44 };
+}
+function drawEditor(nChars, alpha = 1, textOnly = false, c = ctx, cursor = true) {
+  const e = ed;
+  c.save(); c.globalAlpha = alpha;
+  if (!textOnly) {
+    c.fillStyle = '#0D1017'; c.strokeStyle = 'rgba(255,255,255,.07)'; c.lineWidth = 1;
+    rr(c, e.x, e.y, e.w, e.h, 14); c.fill(); c.stroke();
+    ['#FF5F57', '#FEBC2E', '#28C840'].forEach((col, i) => { c.fillStyle = col; c.beginPath(); c.arc(e.x + 20 + i * 18, e.y + 20, 5.5, 0, TAU); c.fill(); });
+    c.fillStyle = 'rgba(191,199,213,.55)'; c.font = `500 ${e.fs * 0.85}px "JetBrains Mono", ui-monospace, monospace`; c.textAlign = 'center';
+    c.fillText(`${NAME.toLowerCase()}.js`, e.x + e.w / 2, e.y + 24);
+    c.fillStyle = 'rgba(255,255,255,.05)'; c.fillRect(e.x, e.y + 38, e.w, 1);
+  }
+  c.font = `400 ${e.fs}px "JetBrains Mono", ui-monospace, monospace`; c.textAlign = 'left'; c.textBaseline = 'alphabetic';
+  let left = nChars, cx = 0, cy = 0;
+  CODE.forEach((line, li) => {
+    const y = e.y + 44 + (li + 1) * e.lh - e.lh * 0.32;
+    if (!textOnly) { c.fillStyle = 'rgba(95,111,138,.55)'; c.textAlign = 'right'; c.fillText(String(li + 1), e.gx - 14, y); c.textAlign = 'left'; }
+    let x = e.gx;
+    for (const [s, t] of line) {
+      const chars = [...s], take = Math.max(0, Math.min(chars.length, left));
+      if (take > 0) { const part = chars.slice(0, take).join(''); c.fillStyle = TOK[t]; c.fillText(part, x, y); x += c.measureText(part).width; }
+      left -= chars.length; if (left < 0) break;
+    }
+    if (left >= 0) { cx = x; cy = y; }
+    left -= 1;
+  });
+  if (!textOnly && cursor && Math.floor(performance.now() / 480) % 2 === 0) { c.fillStyle = '#FF4D6D'; c.fillRect(cx + 1, cy - e.fs * 0.86, 2, e.fs * 1.05); }
+  c.restore();
+}
+function drawTerminal(stage, alpha) {
+  const e = ed, y = e.y + e.h - 40;
+  ctx.save(); ctx.globalAlpha = alpha;
+  ctx.fillStyle = 'rgba(255,255,255,.04)'; ctx.fillRect(e.x + 1, y - 8, e.w - 2, 1);
+  ctx.font = `600 ${e.fs * 0.92}px "JetBrains Mono", ui-monospace, monospace`; ctx.textAlign = 'left';
+  ctx.fillStyle = '#28C840'; ctx.fillText('$', e.x + 18, y + 20);
+  ctx.fillStyle = '#BFC7D5'; ctx.fillText(` node ${NAME.toLowerCase()}.js`, e.x + 18 + ctx.measureText('$').width, y + 20);
+  if (stage > 0) { ctx.fillStyle = '#FF4D6D'; ctx.textAlign = 'right'; ctx.fillText('❤ running', e.x + e.w - 18, y + 20); }
+  ctx.restore();
+}
+function rr(c, x, y, w, h, r) { c.beginPath(); c.moveTo(x + r, y); c.arcTo(x + w, y, x + w, y + h, r); c.arcTo(x + w, y + h, x, y + h, r); c.arcTo(x, y + h, x, y, r); c.arcTo(x, y, x + w, y, r); c.closePath(); }
+
+// ---------------------------------------------------------------- the heart: points in a puffy 3D heart, most of them near its skin
+const N = (Math.min(innerWidth, innerHeight) < 500 ? 3600 : 5200);
+const px = new Float32Array(N), py = new Float32Array(N), vx = new Float32Array(N), vy = new Float32Array(N);
+const sx = new Float32Array(N), sy = new Float32Array(N);          // where each dot starts (a letter of the code)
+const hx = new Float32Array(N), hy = new Float32Array(N), hz = new Float32Array(N);   // its place in the heart (heart units)
+const del = new Float32Array(N), sw = new Float32Array(N), sz = new Float32Array(N);
+const c0 = new Array(N), c1 = new Array(N);
+const REDS = [[230, 20, 60], [255, 45, 85], [200, 0, 45], [160, 0, 38], [255, 105, 130], [255, 190, 205]];
+for (let i = 0; i < N; i++) {
+  const t = rand() * TAU, shell = rand() < 0.72, k = shell ? 0.9 + rand() * 0.1 : Math.sqrt(rand()) * 0.9;
+  const x = 16 * Math.pow(Math.sin(t), 3), y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+  hx[i] = x * k; hy[i] = y * k + 2.5; hz[i] = (rand() * 2 - 1) * Math.sqrt(Math.max(0, 1 - k * k)) * 7.5;
+  const r = rand(); c1[i] = r < 0.03 ? REDS[5] : r < 0.1 ? REDS[4] : REDS[Math.floor(rand() * 4)];
+  sz[i] = shell ? 0.9 + rand() * 0.9 : 0.6 + rand() * 0.7; sw[i] = (rand() - 0.5) * 2;
+}
+let HS = 1, HX = 0, HY = 0;                                         // heart scale (px per unit) and centre
+function layoutHeart() { HS = Math.min(W, H * 0.62) / 40; HX = W / 2; HY = H * 0.44; if (phase !== 'gate' && phase !== 'code') ed = editorGeo(); }
+// the soft dot every particle is drawn with
+const spr = document.createElement('canvas'); spr.width = spr.height = 32;
+{ const g = spr.getContext('2d'), rg = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+  rg.addColorStop(0, 'rgba(255,255,255,1)'); rg.addColorStop(0.22, 'rgba(255,255,255,.75)'); rg.addColorStop(0.55, 'rgba(255,255,255,.16)'); rg.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = rg; g.fillRect(0, 0, 32, 32); }
+const tints = new Map();                                            // the sprite in each colour, made once
+function tinted(rgb) {
+  const key = rgb.join(','); if (tints.has(key)) return tints.get(key);
+  const c = document.createElement('canvas'); c.width = c.height = 32; const g = c.getContext('2d');
+  g.drawImage(spr, 0, 0); g.globalCompositeOperation = 'source-in'; g.fillStyle = `rgb(${key})`; g.fillRect(0, 0, 32, 32);
+  g.globalCompositeOperation = 'source-over'; g.globalAlpha = 0.6; g.drawImage(spr, 8, 8, 16, 16);
+  tints.set(key, c); return c;
+}
+
+// ---------------------------------------------------------------- the code becomes dots
+function sampleCode() {
+  const off = document.createElement('canvas'); off.width = Math.ceil(W); off.height = Math.ceil(H);
+  const oc = off.getContext('2d'); drawEditor(TOTAL, 1, true, oc, false);
+  const d = oc.getImageData(0, 0, off.width, off.height).data, pts = [];
+  const step = W < 500 ? 2 : 2;
+  for (let y = 0; y < off.height; y += step) for (let x = 0; x < off.width; x += step) {
+    const a = (y * off.width + x) * 4; if (d[a + 3] > 110) pts.push([x, y, d[a], d[a + 1], d[a + 2]]);
+  }
+  for (let i = pts.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [pts[i], pts[j]] = [pts[j], pts[i]]; }
+  for (let i = 0; i < N; i++) {
+    const p = pts.length ? pts[i % pts.length] : [W / 2, H / 2, 255, 80, 100];
+    const jitter = i >= pts.length ? 1.6 : 0;
+    sx[i] = p[0] + (rand() - 0.5) * jitter; sy[i] = p[1] + (rand() - 0.5) * jitter; c0[i] = [p[2], p[3], p[4]];
+    px[i] = sx[i]; py[i] = sy[i]; vx[i] = vy[i] = 0;
+    del[i] = (sx[i] - ed.x) / ed.w * 0.55 + rand() * 0.35;              // the left of the code goes first, a wave
+  }
+}
+
+// ---------------------------------------------------------------- the name, written by hand
+let nameImg = null, arImg = null;
+function makeName() {
+  const fs = Math.min(W * 0.2, 120);
+  const c = document.createElement('canvas'), g = c.getContext('2d');
+  g.font = `${fs}px "Great Vibes", cursive`; const w = Math.ceil(g.measureText(NAME).width + fs * 0.6);
+  c.width = w * 2; c.height = Math.ceil(fs * 1.6) * 2; g.scale(2, 2);
+  g.font = `${fs}px "Great Vibes", cursive`; g.textBaseline = 'middle'; g.textAlign = 'center';
+  g.shadowColor = 'rgba(40,0,10,.95)'; g.shadowBlur = fs * 0.22; g.fillStyle = 'rgba(40,0,10,.9)'; g.fillText(NAME, w / 2, fs * 0.8); g.fillText(NAME, w / 2, fs * 0.8);
+  g.shadowColor = 'rgba(255,190,205,.95)'; g.shadowBlur = fs * 0.18; g.fillStyle = '#FFF4F6';
+  g.fillText(NAME, w / 2, fs * 0.8); g.shadowBlur = 0; g.fillText(NAME, w / 2, fs * 0.8);
+  nameImg = { c, w, h: fs * 1.6 };
+  const fa = Math.min(W * 0.085, 46), c2 = document.createElement('canvas'), g2 = c2.getContext('2d');
+  const lines = FROM ? [NAME_AR, FROM] : [NAME_AR];
+  g2.font = `700 ${fa}px "Aref Ruqaa", serif`; const w2 = Math.ceil(Math.max(...lines.map((l) => g2.measureText(l).width)) + fa);
+  c2.width = w2 * 2; c2.height = Math.ceil(fa * 1.7 * lines.length) * 2; g2.scale(2, 2);
+  g2.direction = 'rtl'; g2.textAlign = 'center'; g2.textBaseline = 'middle';
+  lines.forEach((l, i) => {
+    g2.font = `700 ${i ? fa * 0.6 : fa}px "Aref Ruqaa", serif`;
+    g2.shadowColor = 'rgba(255,60,100,.8)'; g2.shadowBlur = fa * 0.4; g2.fillStyle = i ? 'rgba(255,200,210,.75)' : '#FFD1DC';
+    g2.fillText(l, w2 / 2, fa * 0.85 + i * fa * 1.25);
+  });
+  arImg = { c: c2, w: w2, h: fa * 1.7 * lines.length };
+}
+
+// ---------------------------------------------------------------- the story
+let phase = 'gate', T0 = performance.now(), typed = 0, typeAcc = 0, fast = false, beatT0 = 0, nextBeat = 0, pointer = null, burstAt = -9;
+const sparks = Array.from({ length: 40 }, () => ({ x: rand(), y: rand(), v: 0.02 + rand() * 0.05, s: 0.5 + rand() * 1.4, ph: rand() * TAU }));
+function go(p) { phase = p; T0 = performance.now(); }
+function begin() {
+  audioInit(); if (ac && ac.state === 'suspended') ac.resume();
+  songStart(); songVol(0.35, 2500);
+  document.getElementById('mute').style.opacity = 1;
+  ed = editorGeo(); typed = 0; typeAcc = 0; fast = false; go('code');
+}
+function replay() { document.getElementById('again').classList.remove('on'); ed = editorGeo(); typed = 0; typeAcc = 0; fast = false; go('code'); }
+document.getElementById('again').onclick = (e) => { e.stopPropagation(); replay(); };
+
+addEventListener('pointerdown', (e) => {
+  if (phase === 'gate') return begin();
+  if (phase === 'code') { fast = true; return; }
+  if (phase === 'heart' || phase === 'fly') {
+    pointer = { x: e.clientX, y: e.clientY, down: true };
+    if (phase === 'heart') {                                       // a touch on the heart: it bursts and comes back, beating hard
+      burstAt = performance.now();
+      for (let i = 0; i < N; i++) { const dx = px[i] - e.clientX + (rand() - 0.5) * 30, dy = py[i] - e.clientY + (rand() - 0.5) * 30, d = Math.hypot(dx, dy) + 30; const f = 22 + 3200 / d; vx[i] += (dx / d) * f * (0.4 + rand()); vy[i] += (dy / d) * f * (0.4 + rand()); }
+      if (ac) { const at = ac.currentTime + 0.01; thump(at, 90, 1); thump(at + 0.26, 70, 0.7); }
+    }
+  }
+});
+addEventListener('pointermove', (e) => { if (pointer) { pointer.x = e.clientX; pointer.y = e.clientY; } else if (e.pointerType === 'mouse' && phase === 'heart') pointer = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointerup', () => { if (pointer && pointer.down) pointer = null; });
+addEventListener('pointerleave', () => { pointer = null; });
+addEventListener('resize', resize);
+
+// the beat: lub-dub, 72 a minute
+const BEAT = 60 / 72;
+function beatAmt(s) {
+  const u = ((s % BEAT) + BEAT) % BEAT;
+  const b = (c, w) => Math.exp(-Math.pow((u - c) / w, 2));
+  return b(0.06, 0.05) * 1 + b(0.32, 0.055) * 0.55;
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const t = (now - T0) / 1000;
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = phase === 'fly' ? 'rgba(5,2,6,.34)' : phase === 'heart' ? 'rgba(5,2,6,.42)' : '#050206';
+  ctx.fillRect(0, 0, W, H);
+
+  if (phase === 'gate') {
+    // a small heart beating in the dark, and the words
+    const s = 1 + beatAmt(now / 1000) * 0.14, r = Math.min(W, H) * 0.035 * s;
+    ctx.save(); ctx.translate(W / 2, H * 0.46);
+    const glow = ctx.createRadialGradient(0, 0, 0, 0, 0, r * 6); glow.addColorStop(0, 'rgba(255,40,80,.35)'); glow.addColorStop(1, 'rgba(255,40,80,0)');
+    ctx.fillStyle = glow; ctx.fillRect(-r * 6, -r * 6, r * 12, r * 12);
+    ctx.fillStyle = '#FF2A4D'; heartPath(ctx, r); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.textAlign = 'center'; ctx.direction = 'rtl';
+    ctx.fillStyle = 'rgba(255,210,218,.9)'; ctx.font = `700 ${Math.min(30, W * 0.075)}px "Aref Ruqaa", serif`; ctx.fillText(`لـ ${NAME_AR}`, W / 2, H * 0.6);
+    ctx.globalAlpha = 0.45 + 0.35 * Math.sin(now / 520); ctx.fillStyle = 'rgba(255,200,210,.8)'; ctx.font = '500 14px system-ui, sans-serif';
+    ctx.fillText('المسي القلب', W / 2, H * 0.6 + 34); ctx.restore();
+    return;
+  }
+
+  if (phase === 'code') {
+    const cps = fast ? 260 : 46, dt = Math.min(0.05, (now - (frame.last || now)) / 1000);
+    const before = Math.floor(typed);
+    typeAcc += dt * cps * (0.7 + rand() * 0.6); typed = Math.min(TOTAL, typeAcc);
+    if (Math.floor(typed) > before && Math.floor(typed) % 2 === 0) tick();
+    drawEditor(Math.floor(typed));
+    if (typed >= TOTAL) {
+      if (!frame.done) frame.done = now;
+      const w = (now - frame.done) / 1000;
+      drawTerminal(w > 0.55 ? 1 : 0, clamp(w * 4));
+      if (w > 1.25) { frame.done = 0; sampleCode(); whoosh(); go('fly'); }
+    }
+    frame.last = now;
+    return;
+  }
+
+  // dots: the code flies apart and gathers into the heart; then the heart lives
+  const s = now / 1000, beat = beatAmt(s), rot = 0.42 * Math.sin(s * 0.55), cr = Math.cos(rot), srt = Math.sin(rot), F = 60;
+  const flyT = phase === 'fly' ? t : 99;
+  if (phase === 'fly' && t < 0.6) { ctx.save(); ctx.globalAlpha = 1 - t / 0.6; drawEditor(TOTAL, 1, false, ctx, false); ctx.restore(); }
+  // a red bloom behind the heart, breathing with it
+  const bloom = clamp((flyT - 1.2) / 1.2) * (0.55 + beat * 0.35);
+  if (bloom > 0) {
+    const bg = ctx.createRadialGradient(HX, HY, 0, HX, HY, HS * 26);
+    bg.addColorStop(0, `rgba(255,30,70,${0.2 * bloom})`); bg.addColorStop(0.5, `rgba(160,0,40,${0.08 * bloom})`); bg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  }
+  ctx.globalCompositeOperation = 'lighter';
+  const scale = HS * (1 + beat * 0.07), burst = (now - burstAt) / 1000;
+  for (let i = 0; i < N; i++) {
+    // the place in the heart, turned a little in depth
+    const x3 = hx[i] * cr + hz[i] * srt, z3 = -hx[i] * srt + hz[i] * cr;
+    const pz = F / (F + z3 * 1.4), wob = Math.sin(s * 1.7 + i) * 0.12;
+    const tx = HX + (x3 + wob * sw[i]) * scale * pz, ty = HY + (hy[i] + wob) * scale * pz;
+    let col = c1[i], a = 0.3 + 0.3 * pz, grow = 1;
+    if (phase === 'fly') {
+      const u = clamp((t - 0.35 - del[i]) / 1.7), e = ease.io(u);
+      // a swirl on the way: the dot curves round the heart's centre
+      const mx = (sx[i] + tx) / 2, my = (sy[i] + ty) / 2, dx = tx - sx[i], dy = ty - sy[i];
+      const bend = Math.sin(Math.PI * e) * (0.35 + 0.25 * sw[i]);
+      px[i] = sx[i] + dx * e - dy * bend; py[i] = sy[i] + dy * e + dx * bend;
+      if (u < 1) { const k = clamp(u * 2.2); col = [c0[i][0] + (col[0] - c0[i][0]) * k, c0[i][1] + (col[1] - c0[i][1]) * k, c0[i][2] + (col[2] - c0[i][2]) * k].map(Math.round); a = u <= 0 ? 0.9 : 0.55 - 0.25 * Math.sin(Math.PI * u); }
+      grow = u <= 0 ? 0.22 : 0.22 + 0.78 * ease.out(u);
+      vx[i] = vy[i] = 0;
+    } else {
+      // springs home; a finger pushes the dots away
+      const kS = 0.06 * clamp((burst - 0.25) / 0.9, 0.04, 1);
+      vx[i] += (tx - px[i]) * kS; vy[i] += (ty - py[i]) * kS;
+      if (pointer) { const dx = px[i] - pointer.x, dy = py[i] - pointer.y, d2 = dx * dx + dy * dy, R = 70 * 70; if (d2 < R) { const f = (1 - d2 / R) * 5; const d = Math.sqrt(d2) + 0.01; vx[i] += (dx / d) * f; vy[i] += (dy / d) * f; } }
+      const damp = burst < 0.6 ? 0.93 : 0.82; vx[i] *= damp; vy[i] *= damp; px[i] += vx[i]; py[i] += vy[i];
+    }
+    const size = sz[i] * (5 * pz + beat * 1.5) * grow;
+    ctx.globalAlpha = a * (burst < 1.2 ? 1 : 1);
+    ctx.drawImage(tinted(col.map((v) => (v / 16 | 0) * 16)), px[i] - size, py[i] - size, size * 2, size * 2);
+  }
+  ctx.globalAlpha = 1;
+  // tiny sparks rising slowly, once the heart is there
+  if (flyT > 2) {
+    for (const p of sparks) {
+      const y = ((p.y - s * p.v) % 1 + 1) % 1, x = p.x + Math.sin(s * 0.8 + p.ph) * 0.02;
+      ctx.globalAlpha = 0.35 * Math.sin(Math.PI * y) * clamp((flyT - 2) / 1.5);
+      ctx.drawImage(tinted([255, 140, 160]), x * W - p.s * 3, y * H - p.s * 3, p.s * 6, p.s * 6);
+    }
+    ctx.globalAlpha = 1;
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  if (phase === 'fly' && t > 2.4) { go('heart'); chime(); songVol(0.85, 2200); beatT0 = performance.now(); nextBeat = 0; }
+  // the beat you hear, in step with the beat you see
+  if (ac && phase === 'heart') {
+    const at = ac.currentTime, bt = Math.ceil((s - 0.02) / BEAT) * BEAT;
+    if (bt > nextBeat) { nextBeat = bt; const lead = bt - s; thump(at + lead + 0.04, 80, 0.8); thump(at + lead + 0.30, 66, 0.5); }
+  }
+  // the name, written from left to right, and the Arabic under the heart
+  if (phase === 'heart') {
+    if (!nameImg) makeName();
+    const wu = clamp((t - 0.5) / 1.6), we = ease.io(wu);
+    if (wu > 0) {
+      const ni = nameImg, k = 1 + beat * 0.025, w = ni.w * k, h = ni.h * k, x = HX - w / 2, y = HY - h / 2 - HS * 0.6;
+      ctx.save(); ctx.beginPath(); ctx.rect(x, y - 20, w * we, h + 40); ctx.clip();
+      ctx.drawImage(ni.c, x, y, w, h); ctx.restore();
+      if (wu < 1) {                                      // the pen's light at the edge
+        ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = 0.9;
+        const ex = x + w * we, ey = y + h * (0.45 + 0.12 * Math.sin(we * 26));
+        ctx.drawImage(tinted([255, 230, 236]), ex - 14, ey - 14, 28, 28); ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+      }
+    }
+    const au = ease.out(clamp((t - 2.0) / 1.0));
+    if (au > 0) {
+      const ai = arImg; ctx.save(); ctx.globalAlpha = au;
+      ctx.drawImage(ai.c, HX - ai.w / 2, HY + HS * 19.5 + (1 - au) * 14, ai.w, ai.h); ctx.restore();
+    }
+    if (t > 3.2 && !frame.again) { frame.again = 1; document.getElementById('again').classList.add('on'); }
+    if (t < 3.2) frame.again = 0;
+  }
+}
+function heartPath(c, r) {
+  c.beginPath();
+  for (let i = 0; i <= 64; i++) { const t = (i / 64) * TAU, x = 16 * Math.pow(Math.sin(t), 3), y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)); c[i ? 'lineTo' : 'moveTo']((x / 16) * r, (y / 16) * r); }
+  c.closePath();
+}
+resize();
+// fonts first, so the code and the name are drawn in theirs
+Promise.race([Promise.all([document.fonts.load('400 16px "JetBrains Mono"'), document.fonts.load('48px "Great Vibes"'), document.fonts.load('700 30px "Aref Ruqaa"')]), new Promise((r) => setTimeout(r, 2500))])
+  .finally(() => requestAnimationFrame(frame));
+// for checking: ?auto=1 starts by itself (no sound)
+if (new URLSearchParams(location.search).has('auto')) setTimeout(() => begin(), 300);
+</script>
+</body>
+</html>
