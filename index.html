@@ -6,6 +6,7 @@
 <meta name="theme-color" content="#050206">
 <meta name="robots" content="noindex">
 <title>❤</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E%E2%9D%A4%EF%B8%8F%3C/text%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Great+Vibes&family=Aref+Ruqaa:wght@700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -304,7 +305,7 @@ function frame(now) {
     ctx.fillStyle = '#FF2A4D'; heartPath(ctx, r); ctx.fill(); ctx.restore();
     ctx.save(); ctx.textAlign = 'center'; ctx.direction = 'rtl';
     ctx.fillStyle = 'rgba(255,210,218,.9)'; ctx.font = `700 ${Math.min(30, W * 0.075)}px "Aref Ruqaa", serif`; ctx.fillText(`لـ ${NAME_AR}`, W / 2, H * 0.6);
-    ctx.globalAlpha = 0.45 + 0.35 * Math.sin(now / 520); ctx.fillStyle = 'rgba(255,200,210,.8)'; ctx.font = '500 14px system-ui, sans-serif';
+    ctx.globalAlpha = 0.7 + 0.3 * Math.sin(now / 520); ctx.fillStyle = 'rgba(255,214,222,.95)'; ctx.font = '500 16px system-ui, sans-serif';
     ctx.fillText('المسي القلب', W / 2, H * 0.6 + 34); ctx.restore();
     return;
   }
